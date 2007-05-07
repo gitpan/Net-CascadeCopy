@@ -5,7 +5,7 @@ use strict;
 use Log::Log4perl qw(:easy);
 use POSIX ":sys_wait_h"; # imports WNOHANG
 use Proc::Queue size => 32, debug => 0, trace => 0, delay => 1;
-use version; our $VERSION = qv('0.0.7');
+use version; our $VERSION = qv('0.0.8');
 
 my $logger = get_logger( 'default' );
 
@@ -406,9 +406,7 @@ This module and the included script, ccp, take a much more efficient
 approach, i.e. O(log n).  Once the file(s) are been copied to a remote
 server, that server will be promoted to be used as source server for
 copying to remaining servers.  Thus, the rate of transfer increases
-exponentially rather than linearly.  Needless to say, when
-transferring files to a large number of remote servers (e.g. over 40),
-this can make a gynormous difference.
+exponentially rather than linearly.
 
 Servers can be specified in groups (e.g. datacenter) to prevent
 copying across groups.  This maximizes the number of transfers done
