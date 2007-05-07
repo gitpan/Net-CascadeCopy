@@ -2,11 +2,10 @@ package Net::CascadeCopy;
 use warnings;
 use strict;
 
-use Carp;
 use Log::Log4perl qw(:easy);
 use POSIX ":sys_wait_h"; # imports WNOHANG
 use Proc::Queue size => 16, debug => 0, trace => 0, delay => 1;
-use version; our $VERSION = qv('0.0.3');
+use version; our $VERSION = qv('0.0.4');
 
 my $logger = get_logger( 'default' );
 
@@ -375,9 +374,7 @@ Net::CascadeCopy - efficiently replicate files across many servers
                                    } );
 
     # set the command and arguments to use to transfer file(s)
-    $ccp->set_command( { command => "scp",
-                         args    => "-p",
-                     } );
+    $ccp->set_command( "scp", "-p" );
 
     # set path on the local server
     $ccp->set_source_path( "/path/on/local/server" );
@@ -399,25 +396,58 @@ number of servers in multiple datacenters via rsync or scp.
 
 The usual approach to copying a file to many servers is to copy it to
 one or more central file servers and then copy it from there to every
-other server in the datacenter.  The speed at which the file can be
-copied is a function of the local cpu/disk utilization and the network
+other server in the group.  The speed at which the file can be copied
+is a function of the local cpu/disk utilization and the network
 throughput on the file server(s).
 
-This module takes a different approach.  Once a file has been copied
-to a remote server, that server will then be used as a source point
-for copying the file to additional servers.
+This module takes a different approach.  Once the file has been copied
+to a remote server, that server will be used as a source point for
+copying to additional servers in the same group.  Hence the speed of
+the transfer can increase exponentially rather than linearly.
+
+A new process will be forked for every transfer, so as soon as each
+transfer completes, new transfers will immediately be started.
+
 
 
 =head1 CONSTRUCTOR
 
 =over 8
 
-=item C< new( ) >
+=item new( )
 
 Returns a reference to a new use Net::CascadeCopy object.
 
+Here are the currently supported options at creation time:
+
 This is an inside-out perl class.  For more info, see "Perl Best
 Practices" by Damian Conway
+
+=head2 CONSTRUCTOR OPTIONS
+
+=over 4
+
+=item ssh => "/path/to/ssh"
+
+Name or path of ssh script ot use to log in to each remote server to
+begin a transfer to another remote server.
+
+
+=item ssh_flags => "-option1 -option2"
+
+Command line options to be passed to ssh script.
+
+=item max_failures => 3
+
+The Maximum number of transfer failures to allow before giving up on a
+target host.
+
+=item max_forks => 2
+
+The maximum number of simultaneous transfers that should be running
+per source server.
+
+=back
 
 =back
 
@@ -427,28 +457,28 @@ Practices" by Damian Conway
 
 =over 8
 
-=item C<$self->add_group( $groupname, \@servers )>
+=item $self->add_group( $groupname, \@servers )
 
 Add a group of servers.  Ideally all servers will be located in the
 same datacenter.  This may be called multiple times with different
 group names to create multiple groups.
 
-=item C<$self->set_command( $command, $args )>
+=item $self->set_command( $command, $args )
 
 Set the command and arguments that will be used to transfer files.
 For example, "rsync" and "-ravuz" could be used for rsync, or "scp"
 and "-p" could be used for scp.
 
-=item C<$self->set_source_path( $path )>
+=item $self->set_source_path( $path )
 
 Specify the path on the local server where the source files reside.
 
-=item C<$self->set_target_path( $path )>
+=item $self->set_target_path( $path )
 
 Specify the target path on the remote servers where the files should
 be copied.
 
-=item C<$self->transfer( )>
+=item $self->transfer( )
 
 Transfer all files.  Will not return until all files are transferred.
 
@@ -457,7 +487,9 @@ Transfer all files.  Will not return until all files are transferred.
 
 =head1 BUGS AND LIMITATIONS
 
-There are no known bugs in this module. Please report problems to
+Note that this is still an alpha release.
+
+There are no known bugs in this module.  Please report problems to
 VVu@geekfarm.org
 
 Patches are welcome.
