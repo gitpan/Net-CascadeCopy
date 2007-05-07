@@ -4,14 +4,15 @@ use strict;
 
 use Log::Log4perl qw(:easy);
 use POSIX ":sys_wait_h"; # imports WNOHANG
-use Proc::Queue size => 16, debug => 0, trace => 0, delay => 1;
-use version; our $VERSION = qv('0.0.4');
+use Proc::Queue size => 32, debug => 0, trace => 0, delay => 1;
+use version; our $VERSION = qv('0.0.7');
 
 my $logger = get_logger( 'default' );
 
 # inside-out Perl class
 use Class::Std::Utils;
 {
+    # available/remaining/completed/failed servers and running processes
     my %data_of;
 
     # ssh command used to log in to remote server in order to run command
@@ -323,7 +324,7 @@ use Class::Std::Utils;
         return if $server eq "localhost";
 
         $logger->debug( "Server available: ($group) $server" );
-        push @{ $data_of{ident $self}->{available}->{ $group } }, $server;
+        unshift @{ $data_of{ident $self}->{available}->{ $group } }, $server;
     }
 
     sub _mark_remaining {
@@ -359,7 +360,8 @@ __END__
 
 =head1 NAME
 
-Net::CascadeCopy - efficiently replicate files across many servers
+Net::CascadeCopy - efficiently copy files to many servers in multiple
+locations
 
 
 =head1 SYNOPSIS
@@ -391,22 +393,31 @@ Net::CascadeCopy - efficiently replicate files across many servers
 
 =head1 DESCRIPTION
 
-This module efficiently replicates a file or directory across a large
+This module efficiently distributes a file or directory across a large
 number of servers in multiple datacenters via rsync or scp.
 
-The usual approach to copying a file to many servers is to copy it to
-one or more central file servers and then copy it from there to every
-other server in the group.  The speed at which the file can be copied
-is a function of the local cpu/disk utilization and the network
-throughput on the file server(s).
+A frequent solution to distributing a file or directory to a large
+number of servers is to copy it from a central file server to all
+other servers.  To speed this up, multiple file servers may be used,
+or files may be copied in parallel until the inevitable bottleneck in
+network/disk/cpu is reached.  These approaches run in O(N) time.
 
-This module takes a different approach.  Once the file has been copied
-to a remote server, that server will be used as a source point for
-copying to additional servers in the same group.  Hence the speed of
-the transfer can increase exponentially rather than linearly.
+This module and the included script, ccp, take a much more efficient
+approach, i.e. O(log n).  Once the file(s) are been copied to a remote
+server, that server will be promoted to be used as source server for
+copying to remaining servers.  Thus, the rate of transfer increases
+exponentially rather than linearly.  Needless to say, when
+transferring files to a large number of remote servers (e.g. over 40),
+this can make a gynormous difference.
 
-A new process will be forked for every transfer, so as soon as each
-transfer completes, new transfers will immediately be started.
+Servers can be specified in groups (e.g. datacenter) to prevent
+copying across groups.  This maximizes the number of transfers done
+over a local high-speed connection (LAN) while minimizing the number
+of transfers over the WAN.
+
+The number of multiple simultaneous transfers per source point is
+configurable.  The total number of simultaneously forked processes is
+limited via Proc::Queue, and is currently hard coded to 32.
 
 
 
@@ -414,43 +425,38 @@ transfer completes, new transfers will immediately be started.
 
 =over 8
 
-=item new( )
+=item new( { option => value } )
 
 Returns a reference to a new use Net::CascadeCopy object.
 
-Here are the currently supported options at creation time:
-
-This is an inside-out perl class.  For more info, see "Perl Best
-Practices" by Damian Conway
-
-=head2 CONSTRUCTOR OPTIONS
+Options:
 
 =over 4
 
 =item ssh => "/path/to/ssh"
 
 Name or path of ssh script ot use to log in to each remote server to
-begin a transfer to another remote server.
+begin a transfer to another remote server.  Default is simply "ssh" to
+be invoked from $PATH.
 
+=item ssh_flags => "-x -A"
 
-=item ssh_flags => "-option1 -option2"
-
-Command line options to be passed to ssh script.
+Command line options to be passed to ssh script.  Default is to
+disable X11 and enable agent forwarding.
 
 =item max_failures => 3
 
 The Maximum number of transfer failures to allow before giving up on a
-target host.
+target host.  Default is 3.
 
 =item max_forks => 2
 
 The maximum number of simultaneous transfers that should be running
-per source server.
+per source server.  Default is 2.
 
 =back
 
 =back
-
 
 =head1 INTERFACE
 
@@ -489,11 +495,14 @@ Transfer all files.  Will not return until all files are transferred.
 
 Note that this is still an alpha release.
 
+If using rsync for the copy mechanism, it is recommended that you use
+the "--delete" and "--checksum" options.  Otherwise, if the content of
+the directory structure varies slightly from system to system, then
+you may potentially sync different files from some servers than from
+others.
+
 There are no known bugs in this module.  Please report problems to
-VVu@geekfarm.org
-
-Patches are welcome.
-
+VVu@geekfarm.org.  Patches are welcome.
 
 
 =head1 AUTHOR
