@@ -1,0 +1,127 @@
+#!/usr/bin/perl -w
+use strict;
+
+use Data::Dumper;
+use Getopt::Long qw[ :config gnu_getopt ];
+use Log::Log4perl qw(:easy);
+use Pod::Usage;
+
+use Net::CascadeCopy;
+
+$| = 1;
+
+#
+#_* Command-line options processing
+#
+use vars qw( $opt_path      $opt_target_path
+             $opt_command   $opt_args        @opt_group
+             $opt_rsync     $opt_scp         $opt_ssh    $opt_log
+             $opt_sshargs   $opt_failures    $opt_forks  $opt_stdout
+             $opt_help      $opt_verbose     $opt_debug
+          );
+
+unless ( GetOptions ( '-f|path:s'    => \$opt_path,
+                      '-t|target:s'  => \$opt_target_path,
+                      '-g|group=s'   => \@opt_group,
+                      '-c|command=s' => \$opt_command,
+                      '-a|args=s'    => \$opt_args,
+                      '-o|stdout'    => \$opt_stdout,
+                      '-l|log'       => \$opt_log,
+                      '-r|rsync'     => \$opt_rsync,
+                      '-failures=i'  => \$opt_failures,
+                      '-forks=i'     => \$opt_forks,
+                      '-s|scp'       => \$opt_scp,
+                      '-ssh=s'       => \$opt_ssh,
+                      '-ssh-flags=s' => \$opt_sshargs,
+                      '-v|verbose!'  => \$opt_verbose,
+                      '-d|debug!'    => \$opt_debug,
+                      '-help|?'		 => \$opt_help,
+    )
+) { pod2usage( -exitval => 1, -verbose => 0 ) }
+
+if ( $opt_help ) {
+    pod2usage( -exitval => 0, -verbose => 1 ) unless $opt_verbose;
+    pod2usage( -exitval => 0, -verbose => 2 ) if     $opt_verbose;
+}
+
+#
+#_* Log4perl
+#
+
+my $log_level = "INFO";
+if ( $opt_debug ) {
+    $log_level = "DEBUG";
+}
+
+my $conf =<<END_LOG4PERLCONF;
+# Screen output at INFO level
+log4perl.rootLogger=DEBUG, SCREEN
+
+# Info to screen and logfile
+log4perl.appender.SCREEN.Threshold=$log_level
+log4perl.appender.SCREEN=Log::Log4perl::Appender::ScreenColoredLevels
+log4perl.appender.SCREEN.layout=PatternLayout
+log4perl.appender.SCREEN.layout.ConversionPattern=%d %m%n
+log4perl.appender.SCREEN.stderr=0
+
+END_LOG4PERLCONF
+
+Log::Log4perl::init( \$conf );
+
+my $logger = get_logger( 'default' );
+
+#
+#_* Main
+#
+
+my $ccp = Net::CascadeCopy->new( { ssh          => $opt_ssh      || "ssh",
+                                   ssh_flags    => $opt_sshargs  || "-x -A",
+                                   max_failures => $opt_failures || 3,
+                                   max_forks    => $opt_forks    || 2,
+                               } );
+
+# determine command and arguments
+my ( $command, $args );
+if ( $opt_command ) {
+    $ccp->set_command( $opt_command, $opt_args );
+}
+elsif ( $opt_scp ) {
+    $ccp->set_command( "scp", "-p" );
+}
+elsif ( $opt_rsync ) {
+    $ccp->set_command( "rsync", "-ravu" );
+}
+else {
+    die "Nothing to do!  No command, scp, or rsync options specified\n";
+}
+
+# path
+unless ( $opt_path ) {
+    die "Error: source path not specified";
+}
+unless ( -r $opt_path ) {
+    die "Error: source path not found: $opt_path";
+}
+$ccp->set_source_path( $opt_path );
+if ( $opt_target_path ) {
+    $ccp->set_target_path( $opt_target_path );
+}
+else {
+    $ccp->set_target_path( $opt_path );
+}
+
+unless ( scalar @opt_group ) {
+    die "Error: no server groups specified\n";
+}
+
+for my $group ( @opt_group ) {
+    my ( $groupname, $members ) = split /:/, $group;
+    unless ( $groupname && $members ) {
+        die "Error: format of group param is group:server1,server2,...\n";
+    }
+    my @servers = split /[,\s]/, $members;
+    $ccp->add_group( $groupname, \@servers );
+}
+
+
+$ccp->transfer();
