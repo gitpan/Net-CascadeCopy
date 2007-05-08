@@ -5,7 +5,7 @@ use strict;
 use Log::Log4perl qw(:easy);
 use POSIX ":sys_wait_h"; # imports WNOHANG
 use Proc::Queue size => 32, debug => 0, trace => 0, delay => 1;
-use version; our $VERSION = qv('0.0.8');
+use version; our $VERSION = qv('0.0.9');
 
 my $logger = get_logger( 'default' );
 
@@ -54,7 +54,6 @@ use Class::Std::Utils;
         return $new_object;
     }
 
-    # Retrieve files from root directory...
     sub _get_data {
         my ($self) = @_;
         return $data_of{ident $self};
@@ -400,13 +399,13 @@ A frequent solution to distributing a file or directory to a large
 number of servers is to copy it from a central file server to all
 other servers.  To speed this up, multiple file servers may be used,
 or files may be copied in parallel until the inevitable bottleneck in
-network/disk/cpu is reached.  These approaches run in O(N) time.
+network/disk/cpu is reached.  These approaches run in O(n) time.
 
 This module and the included script, ccp, take a much more efficient
-approach, i.e. O(log n).  Once the file(s) are been copied to a remote
-server, that server will be promoted to be used as source server for
-copying to remaining servers.  Thus, the rate of transfer increases
-exponentially rather than linearly.
+approach that is O(log n).  Once the file(s) are been copied to a
+remote server, that server will be promoted to be used as source
+server for copying to remaining servers.  Thus, the rate of transfer
+increases exponentially rather than linearly.
 
 Servers can be specified in groups (e.g. datacenter) to prevent
 copying across groups.  This maximizes the number of transfers done
@@ -427,7 +426,7 @@ limited via Proc::Queue, and is currently hard coded to 32.
 
 Returns a reference to a new use Net::CascadeCopy object.
 
-Options:
+Supported options:
 
 =over 4
 

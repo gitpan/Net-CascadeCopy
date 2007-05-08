@@ -156,7 +156,7 @@ A frequent solution to distributing a file or directory to a large
 number of servers is to copy it from a central file server to all
 other servers.  To speed this up, multiple file servers may be used,
 or files may be copied in parallel until the inevitable bottleneck in
-network/disk/cpu is reached.  These approaches run in O(N) time.
+network/disk/cpu is reached.  These approaches run in O(n) time.
 
 This module and the included script, ccp, take a much more efficient
 approach, i.e. O(log n).  Once the file(s) are been copied to a remote
@@ -164,7 +164,7 @@ server, that server will be promoted to be used as source server for
 copying to remaining servers.  Thus, the rate of transfer increases
 exponentially rather than linearly.  Needless to say, when
 transferring files to a large number of remote servers (e.g. over 40),
-this can make a gynormous difference.
+this can make a ginormous difference.
 
 Servers can be specified in groups (e.g. datacenter) to prevent
 copying across groups.  This maximizes the number of transfers done
@@ -249,7 +249,6 @@ Display usage.  Displays full manual when combined with -v.
 
 Display stdout from all child processes as it is received.  This can
 get a bit crazy and is only recommended for debugging.
-=back
 
 =back
 
@@ -314,6 +313,8 @@ Patches are welcome.
 
 VVu@geekfarm.org
 
+Thanks to Russ and Robert for coming up with the idea of cascading
+deployments!
 
 =head1 LICENCE AND COPYRIGHT
 
