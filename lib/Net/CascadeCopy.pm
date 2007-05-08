@@ -5,7 +5,7 @@ use strict;
 use Log::Log4perl qw(:easy);
 use POSIX ":sys_wait_h"; # imports WNOHANG
 use Proc::Queue size => 32, debug => 0, trace => 0, delay => 1;
-use version; our $VERSION = qv('0.0.9');
+use version; our $VERSION = qv('0.0.10');
 
 my $logger = get_logger( 'default' );
 

@@ -159,10 +159,10 @@ or files may be copied in parallel until the inevitable bottleneck in
 network/disk/cpu is reached.  These approaches run in O(n) time.
 
 This module and the included script, ccp, take a much more efficient
-approach, i.e. O(log n).  Once the file(s) are been copied to a remote
-server, that server will be promoted to be used as source server for
-copying to remaining servers.  Thus, the rate of transfer increases
-exponentially rather than linearly.  Needless to say, when
+approach that is O(log n).  Once the file(s) are been copied to a
+remote server, that server will be promoted to be used as source
+server for copying to remaining servers.  Thus, the rate of transfer
+increases exponentially rather than linearly.  Needless to say, when
 transferring files to a large number of remote servers (e.g. over 40),
 this can make a ginormous difference.
 
@@ -173,13 +173,31 @@ of transfers over the WAN.
 
 =back
 
-=head2 OPTIONS
+=head1 USAGE EXAMPLES
 
-The following options are supported by this command
+Here are some basic usage examples:
 
-=over 4
+  # cascade copy file.gz using scp to four servers
+  ccp -s -f /local/file.gz -g production:server1,server2,server3,server4
 
-=item -f|-path [ /path ]
+  # rsync /some/directory to a total of 10 servers in two datacenters
+  ccp -r -f /some/directory -g dc1:s1,s2,s3,s4,s5 -g dc2:s6,s7,s8,s9,s10
+
+  # log output of each child to ccp.servername.log
+  ccp -s -l -f /local/file.gz -g production:server1,server2,server3,server4
+
+  # custom rsync options
+  ccp -c "/path/to/rsync" -a "-rav --checksum --delete" -f /some/directory -g prod:srv1,srv2,srv3,srv4
+
+
+
+=head2 ARGUMENTS
+
+The following options are supported by this command:
+
+=over 8
+
+=item -f|--path [ /path ]
 
 Specifies the path of the file to be transferrred.
 
@@ -194,11 +212,20 @@ Add a group of servers named groupname containing three servers.
 Multiple groups may be specified.  All copying will be performed
 within each defined group--no copying will be performed across groups.
 
-Servers may not be listed in more than one group.
+Servers may not be listed in more than one group.  Any number of groups may
+be specified.
 
-The initial transfer will be done from the current host to the first
-server in every group.  After that, transfers will be performed in
-order by available servers.
+On startup, an initial transfer will be forked on the current host to
+the first server in every group.  After that, transfers will be
+performed in order by available servers.
+
+=item -s|--scp
+
+Use scp with default option, -p.
+
+=item -r|--rsync
+
+Use rsync with default options, -ravu.
 
 =item -c|--command [ "/path/to/command" ]
 
