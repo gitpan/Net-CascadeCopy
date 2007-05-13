@@ -74,10 +74,19 @@ my $logger = get_logger( 'default' );
 #_* Main
 #
 
+my $output;
+if ( $opt_stdout ) {
+    $output = "stdout";
+}
+elsif ( $opt_log ) {
+    $output = "log";
+}
+
 my $ccp = Net::CascadeCopy->new( { ssh          => $opt_ssh      || "ssh",
                                    ssh_flags    => $opt_sshargs  || "-x -A",
                                    max_failures => $opt_failures || 3,
                                    max_forks    => $opt_forks    || 2,
+                                   output       => $output,
                                } );
 
 # determine command and arguments
@@ -188,6 +197,12 @@ Here are some basic usage examples:
 
   # custom rsync options
   ccp -c "/path/to/rsync" -a "-rav --checksum --delete" -f /some/directory -g prod:srv1,srv2,srv3,srv4
+
+  # sync to 10 servers, use shell brace expansion to build server names
+  ccp -s -f /local/file.gz -g "production:`echo server{1,2,3,4,5,6,7,8,9,10}`"
+
+  # similar to previous, but with zsh brace expansion shortcut
+  ccp -s -f /local/file.gz -g "production:`echo server{01..10}`"
 
 
 

@@ -5,7 +5,7 @@ use strict;
 use Log::Log4perl qw(:easy);
 use POSIX ":sys_wait_h"; # imports WNOHANG
 use Proc::Queue size => 32, debug => 0, trace => 0, delay => 1;
-use version; our $VERSION = qv('0.0.10');
+use version; our $VERSION = qv('0.0.11');
 
 my $logger = get_logger( 'default' );
 
@@ -49,7 +49,7 @@ use Class::Std::Utils;
         $ssh_args_of{ident $new_object}     = $arg_ref->{ssh_args}     || "-x -A";
         $max_failures_of{ident $new_object} = $arg_ref->{max_failures} || 3,
         $max_forks_of{ident $new_object}    = $arg_ref->{max_forks}    || 2;
-        $output_of{ident $new_object}       = $arg_ref->{output};
+        $output_of{ident $new_object}       = $arg_ref->{output}       || "";
 
         return $new_object;
     }
@@ -165,20 +165,20 @@ use Class::Std::Utils;
                                      "$target:$target_path_of{ident $self}";
             }
 
-            $logger->debug( "$command" );
+            my $output = $output_of{ident $self} || "";
+            $logger->debug( "OUTPUT: $output" );
+            if ( $output eq "stdout" ) {
+                # don't modify command
+            } elsif ( $output eq "log" ) {
+                # redirect all child output to log
+                $command = "$command >> ccp.$target.log 2>&1"
+            } else {
+                # default is to redirectout stdout to /dev/null
+                $command = "$command >/dev/null"
+            }
+
             $logger->debug( "Starting new child: $command" );
 
-            if ( my $output = $output_of{ident $self} ) {
-                if ( $output eq "stdout" ) {
-                    # don't modify command
-                } elsif ( $output eq "log" ) {
-                    # redirect all child output to log
-                    $command = "$command >> ccp.$target.log 2>&1"
-                } else {
-                    # default is to redirectout stdout to /dev/null
-                    $command = "$command >/dev/null"
-                }
-            }
             system( $command );
 
             if ($? == -1) {
@@ -498,8 +498,19 @@ the directory structure varies slightly from system to system, then
 you may potentially sync different files from some servers than from
 others.
 
+Since the copies will be performed between machines, you must be able
+to log into each source server to each target server (in the same
+group).  Since empty passwords on ssh keys are insecure, the default
+ssh arguments enable the ssh agent for authentication (the -A option).
+Note that each server will need an entry in .ssh/known_hosts for each
+other server.
+
 There are no known bugs in this module.  Please report problems to
 VVu@geekfarm.org.  Patches are welcome.
+
+=head1 SEE ALSO
+
+  http://www.geekfarm.org/wu/muse/CascadeCopy.html
 
 
 =head1 AUTHOR
