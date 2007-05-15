@@ -142,7 +142,7 @@ __END__
 
 =head1 NAME
 
- ccp - cascading copy
+ ccp - cascading copy, scalable file propagation using ssh/rsync
 
 
 =head1 SYNOPSIS
@@ -158,8 +158,8 @@ This script implements cascading copies using Net::CascadeCopy.
 
 =over 2
 
-This module efficiently distributes a file or directory across a large
-number of servers in multiple datacenters via rsync or scp.
+This module implements a scalable method of propagating files to a
+large number of servers in one or more locations via rsync or scp.
 
 A frequent solution to distributing a file or directory to a large
 number of servers is to copy it from a central file server to all
@@ -192,7 +192,7 @@ Here are some basic usage examples:
   # rsync /some/directory to a total of 10 servers in two datacenters
   ccp -r -f /some/directory -g dc1:s1,s2,s3,s4,s5 -g dc2:s6,s7,s8,s9,s10
 
-  # log output of each child to ccp.servername.log
+  # log output of each child to ccp.sourcehost.targethost.log
   ccp -s -l -f /local/file.gz -g production:server1,server2,server3,server4
 
   # custom rsync options
@@ -341,14 +341,14 @@ data types that cannot be handled, performance issues and the circumstances
 in which they may arise, practical limitations on the size of data sets,
 special cases that are not (yet) handled, etc.
 
-Usually just contains:
-
 There are no known bugs in this module. Please report problems to
 VVu@geekfarm.org
 
 Patches are welcome.
 
 =head1 SEE ALSO
+
+  http://www.geekfarm.org/wu/muse/CascadeCopy.html
 
 
 =head1 AUTHOR

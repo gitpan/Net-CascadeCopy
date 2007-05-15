@@ -1,4 +1,3 @@
-.cvsignore
 Build.PL
 Changes
 lib/Net/CascadeCopy.pm

@@ -2,10 +2,11 @@ package Net::CascadeCopy;
 use warnings;
 use strict;
 
+use Benchmark;
 use Log::Log4perl qw(:easy);
 use POSIX ":sys_wait_h"; # imports WNOHANG
 use Proc::Queue size => 32, debug => 0, trace => 0, delay => 1;
-use version; our $VERSION = qv('0.0.11');
+use version; our $VERSION = qv('0.1.0');
 
 my $logger = get_logger( 'default' );
 
@@ -14,6 +15,9 @@ use Class::Std::Utils;
 {
     # available/remaining/completed/failed servers and running processes
     my %data_of;
+
+    # keep track of total transfer time for each job to calculate savings
+    my %total_time_of;
 
     # ssh command used to log in to remote server in order to run command
     my %ssh_of;
@@ -97,6 +101,8 @@ use Class::Std::Utils;
     sub transfer {
         my ( $self ) = @_;
 
+        my $transfer_start = new Benchmark;
+
         while ( 1 ) {
             $self->_check_for_completed_processes();
 
@@ -128,18 +134,83 @@ use Class::Std::Utils;
                 }
             }
 
-            if ( ! $data_of{ident $self}->{remaining} && ! $data_of{ident $self}->{running} ) {
-                $logger->debug( "All done" );
+            if ( ! scalar keys %{ $data_of{ident $self}->{remaining} } && ! $data_of{ident $self}->{running} ) {
+                my $transfer_end = new Benchmark;
+                my $transfer_diff = timediff( $transfer_end, $transfer_start );
+                $logger->warn( "Job completed in $transfer_diff->[0] seconds" );
+                $logger->info ( "Cumulative tansfer time of all jobs: ", $total_time_of{ident $self}, " seconds" );
+
+                my $savings = $total_time_of{ident $self} - $transfer_diff->[0];
+
+                my ( $hours, $minutes, $seconds ) = ( 0, 0, 0 );
+                if ( $savings > 3600 ) {
+                    $hours = int( $savings / 3600 );
+                    $savings = $savings % 3600;
+                }
+                if ( $savings > 60 ) {
+                    $minutes = int( $savings / 60 );
+                    $savings = $savings % 60;
+                }
+                $seconds = $savings;
+                my $save_string;
+                $save_string .= "$hours hours " if $hours;
+                $save_string .= "$minutes minutes " if $minutes;
+                $save_string .= "$seconds seconds" if $seconds;
+
+                $logger->info( "Approximate Time Saved: $save_string" );
                 exit;
             }
 
+            $logger->debug( "Sleeping..." );
             sleep 1;
         }
     }
 
-#
-#__* start_process()
-#
+    sub _print_status {
+        my ( $self, $group ) = @_;
+
+        # completed procs
+        my $completed = 0;
+        if ( $data_of{ident $self}->{completed}->{ $group } ) {
+            $completed = scalar @{ $data_of{ident $self}->{completed}->{ $group } };
+        }
+
+        # running procs
+        my $running = 0;
+        if ( $data_of{ident $self}->{running} ) {
+            for my $pid ( keys %{ $data_of{ident $self}->{running} } ) {
+                if ( $data_of{ident $self}->{running}->{ $pid }->{group} eq $group ) {
+                    $running++;
+                }
+            }
+        }
+
+        # unstarted
+        my $unstarted = 0;
+        if ( $data_of{ident $self}->{remaining}->{ $group } ) {
+            $unstarted = scalar @{ $data_of{ident $self}->{remaining}->{ $group } };
+        }
+
+        # failed
+        my $errors = 0;
+        my $failures = 0;
+        if ( $data_of{ident $self}->{failed} && $data_of{ident $self}->{failed}->{ $group } ) {
+            for my $server ( keys %{ $data_of{ident $self}->{failed}->{ $group }} ) {
+                $errors += $data_of{ident $self}->{failed}->{ $group }->{ $server };
+                if ( $data_of{ident $self}->{failed}->{ $group }->{ $server } >= $max_failures_of{ident $self} ) {
+                    $failures++;
+                }
+            }
+        }
+
+        $logger->info( "\U$group: ",
+                       "completed:$completed ",
+                       "running:$running ",
+                       "left:$unstarted ",
+                       "errors:$errors ",
+                       "failures:$failures ",
+                   );
+    }
 
     sub _start_process {
         my ( $self, $group, $source, $target ) = @_;
@@ -166,17 +237,17 @@ use Class::Std::Utils;
             }
 
             my $output = $output_of{ident $self} || "";
-            $logger->debug( "OUTPUT: $output" );
             if ( $output eq "stdout" ) {
                 # don't modify command
             } elsif ( $output eq "log" ) {
                 # redirect all child output to log
-                $command = "$command >> ccp.$target.log 2>&1"
+                $command = "$command >> ccp.$source.$target.log 2>&1"
             } else {
                 # default is to redirectout stdout to /dev/null
                 $command = "$command >/dev/null"
             }
 
+            $logger->info( "Starting: ($group) $source => $target" );
             $logger->debug( "Starting new child: $command" );
 
             system( $command );
@@ -195,9 +266,11 @@ use Class::Std::Utils;
                 exit $exit_status;
             }
         } else {
-            $data_of{ident $self}->{running}->{ $f } = { group => $group,
+            my $start = new Benchmark;
+            $data_of{ident $self}->{running}->{ $f } = { group  => $group,
                                                          source => $source,
                                                          target => $target,
+                                                         start  => $start,
                                                      };
         }
     }
@@ -229,17 +302,26 @@ use Class::Std::Utils;
     sub _succeeded_process {
         my ( $self, $pid ) = @_;
 
-        my $group = $data_of{ident $self}->{running}->{ $pid }->{group};
+        my $group  = $data_of{ident $self}->{running}->{ $pid }->{group};
         my $source = $data_of{ident $self}->{running}->{ $pid }->{source};
         my $target = $data_of{ident $self}->{running}->{ $pid }->{target};
+        my $start  = $data_of{ident $self}->{running}->{ $pid }->{start};
 
-        $logger->warn( "Succeeded: ($group) $source => $target  ($pid)" );
+        # calculate time for this transfer
+        my $end = new Benchmark;
+        my $diff = timediff( $end, $start );
+        # keep track of transfer time totals
+        $total_time_of{ident $self} += $diff->[0];
+
+        $logger->warn( "Succeeded: ($group) $source => $target ($diff->[0] seconds)" );
 
         $self->_mark_available( $group, $source );
         $self->_mark_completed( $group, $target );
         $self->_mark_available( $group, $target );
 
         delete $data_of{ident $self}->{running}->{ $pid };
+
+        $self->_print_status( $group );
     }
 
 
@@ -249,7 +331,15 @@ use Class::Std::Utils;
         my $group  = $data_of{ident $self}->{running}->{ $pid }->{group};
         my $source = $data_of{ident $self}->{running}->{ $pid }->{source};
         my $target = $data_of{ident $self}->{running}->{ $pid }->{target};
-        $logger->error( "Failed: ($group) $source => $target" );
+        my $start  = $data_of{ident $self}->{running}->{ $pid }->{start};
+
+        # calculate time for this transfer
+        my $end = new Benchmark;
+        my $diff = timediff( $end, $start );
+        # keep track of transfer time totals
+        $total_time_of{ident $self} += $diff->[0];
+
+        $logger->warn( "Failed: ($group) $source => $target ($diff->[0] seconds)" );
 
         # there was an error during the transfer, reschedule
         # it at the end of the list
@@ -262,6 +352,8 @@ use Class::Std::Utils;
         }
 
         delete $data_of{ident $self}->{running}->{ $pid };
+
+        $self->_print_status( $group );
     }
 
 
@@ -359,8 +451,7 @@ __END__
 
 =head1 NAME
 
-Net::CascadeCopy - efficiently copy files to many servers in multiple
-locations
+Net::CascadeCopy - scalable file propagation using ssh and rsync
 
 
 =head1 SYNOPSIS
@@ -372,10 +463,15 @@ locations
                                        ssh_flags    => "-x -A",
                                        max_failures => 3,
                                        max_forks    => 2,
+                                       output       => "log",
                                    } );
 
     # set the command and arguments to use to transfer file(s)
-    $ccp->set_command( "scp", "-p" );
+    $ccp->set_command( "rsync", "-rav --checksum --delete -e ssh" );
+
+    # another example with scp instead
+    $ccp->set_command( "/path/to/scp", "-p" );
+
 
     # set path on the local server
     $ccp->set_source_path( "/path/on/local/server" );
@@ -392,8 +488,8 @@ locations
 
 =head1 DESCRIPTION
 
-This module efficiently distributes a file or directory across a large
-number of servers in multiple datacenters via rsync or scp.
+This module implements a scalable method of propagating files to a
+large number of servers in one or more locations via rsync or scp.
 
 A frequent solution to distributing a file or directory to a large
 number of servers is to copy it from a central file server to all
@@ -451,6 +547,14 @@ target host.  Default is 3.
 The maximum number of simultaneous transfers that should be running
 per source server.  Default is 2.
 
+=item output => undef
+
+Specify options for child process output.  The default is to discard
+stdout and display stderr.  "log" can be specified to redirect stdout
+and stderr of each transfer to to ccp.sourcehost.targethost.log.
+"stdout" option also exists which will not supress stdout, but this
+option is only intended for debugging.
+
 =back
 
 =back
@@ -490,7 +594,7 @@ Transfer all files.  Will not return until all files are transferred.
 
 =head1 BUGS AND LIMITATIONS
 
-Note that this is still an alpha release.
+Note that this is still a beta release.
 
 If using rsync for the copy mechanism, it is recommended that you use
 the "--delete" and "--checksum" options.  Otherwise, if the content of
@@ -510,7 +614,9 @@ VVu@geekfarm.org.  Patches are welcome.
 
 =head1 SEE ALSO
 
-  http://www.geekfarm.org/wu/muse/CascadeCopy.html
+ccp - command line script distributed with this module
+
+http://www.geekfarm.org/wu/muse/CascadeCopy.html
 
 
 =head1 AUTHOR
