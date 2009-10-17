@@ -1,12 +1,11 @@
 package Net::CascadeCopy;
-use warnings;
-use strict;
+use Mouse;
 
 use Benchmark;
 use Log::Log4perl qw(:easy);
 use POSIX ":sys_wait_h"; # imports WNOHANG
 use Proc::Queue size => 32, debug => 0, trace => 0, delay => 1;
-use version; our $VERSION = qv('0.1.0');
+use version; our $VERSION = qv('0.2.0');
 
 my $logger = get_logger( 'default' );
 
@@ -40,13 +39,15 @@ use Class::Std::Utils;
     # maximum processes per remote server
     my %max_forks_of;
 
+    # keep track of child processes
+    my %children_of;
+
     # Constructor takes path of file system root directory...
     sub new {
         my ($class, $arg_ref) = @_;
 
         # Bless a scalar to instantiate the new object...
         my $new_object = bless \do{my $anon_scalar}, $class;
-
 
         # Initialize the object's attributes...
         $ssh_of{ident $new_object}          = $arg_ref->{ssh}          || "ssh";
@@ -67,7 +68,9 @@ use Class::Std::Utils;
         my ( $self, $command, $args ) = @_;
 
         $command_of{ident $self} = $command;
-        $command_args_of{ident $self} = $args;
+        $command_args_of{ident $self} = $args || "";
+
+        return 1;
     }
 
     sub set_source_path {
@@ -88,10 +91,12 @@ use Class::Std::Utils;
                    );
 
         # initialize data structures
-        $data_of{ident $self}->{remaining}->{ $group } = $servers_a;
+        for my $server ( @{ $servers_a } ) {
+            $data_of{ident $self}->{remaining}->{ $group }->{$server} = 1;
+        }
 
         # first server to transfer from is the current server
-        push @{ $data_of{ident $self}->{available}->{ $group } }, 'localhost';
+        $data_of{ident $self}->{available}->{ $group }->{localhost} = 1;
 
         # initialize data structures
         $data_of{ident $self}->{completed}->{ $group } = [];
@@ -101,69 +106,102 @@ use Class::Std::Utils;
     sub transfer {
         my ( $self ) = @_;
 
+        unless ( $command_of{ident $self} ) {
+            die "ERROR: no transfer command has been set, try set_command()";
+        }
+
+        unless ( $source_path_of{ident $self} ) {
+            die "ERROR: no source path has been set!";
+        }
+
+        unless ( $target_path_of{ident $self} ) {
+            die "ERROR: no target path has been set!";
+        }
+
         my $transfer_start = new Benchmark;
 
+      LOOP:
         while ( 1 ) {
-            $self->_check_for_completed_processes();
-
-            # keep track if there are any remaining servers in any groups
-            my ( $remaining_flag, $available_flag );
-
-            # iterate through groups with reamining servers
-            for my $group ( $self->_get_remaining_groups() ) {
-
-                # there are still available servers to sync
-                if ( $self->_has_available_server( $group )  ) {
-                    my $source = $self->_reserve_available_server( $group );
-
-                    my $busy;
-                    for my $fork ( 1 .. $max_forks_of{ident $self} ) {
-                        next if $source eq "localhost" && $fork > 1;
-                        if ( $self->_has_remaining_server( $group ) ) {
-
-                            my $target = $self->_reserve_remaining_server( $group );
-                            $self->_start_process( $group, $source, $target );
-                            $busy++;
-                        }
-                    }
-
-                    unless ( $busy ) {
-                        $logger->debug( "No remaining servers for available server $source" );
-                        $self->_unreserve_available_server( $source );
-                    }
-                }
-            }
-
-            if ( ! scalar keys %{ $data_of{ident $self}->{remaining} } && ! $data_of{ident $self}->{running} ) {
-                my $transfer_end = new Benchmark;
-                my $transfer_diff = timediff( $transfer_end, $transfer_start );
-                $logger->warn( "Job completed in $transfer_diff->[0] seconds" );
-                $logger->info ( "Cumulative tansfer time of all jobs: ", $total_time_of{ident $self}, " seconds" );
-
-                my $savings = $total_time_of{ident $self} - $transfer_diff->[0];
-
-                my ( $hours, $minutes, $seconds ) = ( 0, 0, 0 );
-                if ( $savings > 3600 ) {
-                    $hours = int( $savings / 3600 );
-                    $savings = $savings % 3600;
-                }
-                if ( $savings > 60 ) {
-                    $minutes = int( $savings / 60 );
-                    $savings = $savings % 60;
-                }
-                $seconds = $savings;
-                my $save_string;
-                $save_string .= "$hours hours " if $hours;
-                $save_string .= "$minutes minutes " if $minutes;
-                $save_string .= "$seconds seconds" if $seconds;
-
-                $logger->info( "Approximate Time Saved: $save_string" );
-                exit;
-            }
-
-            $logger->debug( "Sleeping..." );
+            last LOOP unless $self->_transfer_loop( $transfer_start );
             sleep 1;
         }
+    }
+
+    sub _transfer_loop {
+        my ( $self, $transfer_start ) = @_;
+
+        $self->_check_for_completed_processes();
+
+        # keep track if there are any remaining servers in any groups
+        my ( $remaining_flag, $available_flag );
+
+        # iterate through groups with reamining servers
+        for my $group ( $self->_get_remaining_groups() ) {
+
+            # there are still available servers to sync
+            if ( $self->_get_available_servers( $group )  ) {
+                my $source = $self->_reserve_available_server( $group );
+
+                my $busy;
+                for my $fork ( 1 .. $max_forks_of{ident $self} ) {
+                    next if $source eq "localhost" && $fork > 1;
+                    if ( $self->_get_remaining_servers( $group ) ) {
+
+                        my $target = $self->_reserve_remaining_server( $group );
+                        $self->_start_process( $group, $source, $target );
+                        $busy++;
+                    }
+                }
+
+                unless ( $busy ) {
+                    $logger->debug( "No remaining servers for available server $source" );
+                }
+            }
+        }
+
+        if ( ! scalar keys %{ $data_of{ident $self}->{remaining} } && ! $data_of{ident $self}->{running} ) {
+            my $transfer_end = new Benchmark;
+            my $transfer_diff = timediff( $transfer_end, $transfer_start );
+            my $transfer_time = $self->_human_friendly_time( $transfer_diff->[0] );
+            $logger->warn( "Job completed in $transfer_time" );
+
+            my $total_time = $self->_human_friendly_time( $total_time_of{ident $self} );
+            $logger->info ( "Cumulative tansfer time of all jobs: $total_time" );
+
+            my $savings = $total_time_of{ident $self} - $transfer_diff->[0];
+            if ( $savings ) {
+                $savings = $self->_human_friendly_time( $savings );
+                $logger->info( "Approximate Time Saved: $savings" );
+            }
+            $logger->warn( "Completed successfully" );
+            return;
+        }
+
+        return 1;
+    }
+
+    sub _human_friendly_time {
+        my ( $self, $seconds ) = @_;
+
+        return "0 secs" unless $seconds;
+
+        my @time_string;
+
+        if ( $seconds > 3600 ) {
+            my $hours = int( $seconds / 3600 );
+            $seconds = $seconds % 3600;
+            push @time_string, "$hours hrs";
+        }
+        if ( $seconds > 60 ) {
+            my $minutes = int( $seconds / 60 );
+            $seconds = $seconds % 60;
+            push @time_string, "$minutes mins";
+        }
+        if ( $seconds ) {
+            push @time_string, "$seconds secs";
+        }
+
+        return join " ", @time_string;
     }
 
     sub _print_status {
@@ -188,7 +226,7 @@ use Class::Std::Utils;
         # unstarted
         my $unstarted = 0;
         if ( $data_of{ident $self}->{remaining}->{ $group } ) {
-            $unstarted = scalar @{ $data_of{ident $self}->{remaining}->{ $group } };
+            $unstarted = scalar keys %{ $data_of{ident $self}->{remaining}->{ $group } };
         }
 
         # failed
@@ -235,6 +273,8 @@ use Class::Std::Utils;
                                      $target_path_of{ident $self},
                                      "$target:$target_path_of{ident $self}";
             }
+
+            print "COMMAND: $command\n";
 
             my $output = $output_of{ident $self} || "";
             if ( $output eq "stdout" ) {
@@ -313,7 +353,8 @@ use Class::Std::Utils;
         # keep track of transfer time totals
         $total_time_of{ident $self} += $diff->[0];
 
-        $logger->warn( "Succeeded: ($group) $source => $target ($diff->[0] seconds)" );
+        my $time = $self->_human_friendly_time( $diff->[0] );
+        $logger->warn( "Succeeded: ($group) $source => $target ($time)" );
 
         $self->_mark_available( $group, $source );
         $self->_mark_completed( $group, $target );
@@ -356,39 +397,46 @@ use Class::Std::Utils;
         $self->_print_status( $group );
     }
 
-
-    sub _has_available_server {
+    sub _get_available_servers {
         my ( $self, $group ) = @_;
         return unless $data_of{ident $self}->{available};
         return unless $data_of{ident $self}->{available}->{ $group };
-        return 1 if $data_of{ident $self}->{available}->{ $group }->[0];
+
+        my @hosts = sort keys %{ $data_of{ident $self}->{available}->{ $group } };
+        return @hosts;
     }
 
     sub _reserve_available_server {
         my ( $self, $group ) = @_;
-        if ( $self->_has_remaining_server( $group ) ) {
-            my $server = shift @{ $data_of{ident $self}->{available}->{ $group } };
+        if ( $self->_get_remaining_servers( $group ) ) {
+            my ( $server ) = $self->_get_available_servers( $group );
             $logger->debug( "Reserving ($group) $server" );
+            $children_of{ident $self}->{ $server }++;
             return $server;
         }
     }
 
-    sub _has_remaining_server {
+    sub _get_remaining_servers {
         my ( $self, $group ) = @_;
+
         return unless $data_of{ident $self}->{remaining};
+
         return unless $data_of{ident $self}->{remaining}->{ $group };
-        return 1 if $data_of{ident $self}->{remaining}->{ $group }->[0];
+
+        my @hosts = sort keys %{ $data_of{ident $self}->{remaining}->{ $group } };
+        return @hosts;
     }
 
     sub _reserve_remaining_server {
         my ( $self, $group ) = @_;
 
-        if ( $self->_has_remaining_server( $group ) ) {
-            my $server = shift @{ $data_of{ident $self}->{remaining}->{ $group } };
+        if ( $self->_get_remaining_servers( $group ) ) {
+            my $server = ( sort keys %{ $data_of{ident $self}->{remaining}->{ $group } } )[0];
+            delete $data_of{ident $self}->{remaining}->{ $group }->{$server};
             $logger->debug( "Reserving ($group) $server" );
 
             # delete remaining data structure as groups are completed
-            unless ( scalar @{ $data_of{ident $self}->{remaining}->{ $group } } ) {
+            unless ( scalar keys %{ $data_of{ident $self}->{remaining}->{ $group } } ) {
                 $logger->debug( "Group empty: $group" );
                 delete $data_of{ident $self}->{remaining}->{ $group };
                 unless ( scalar ( keys %{ $data_of{ident $self}->{remaining} } ) ) {
@@ -403,7 +451,7 @@ use Class::Std::Utils;
     sub _get_remaining_groups {
         my ( $self ) = @_;
         return unless $data_of{ident $self}->{remaining};
-        my @keys = keys %{ $data_of{ident $self}->{remaining} };
+        my @keys = sort keys %{ $data_of{ident $self}->{remaining} };
         return unless scalar @keys;
         return @keys;
     }
@@ -415,14 +463,14 @@ use Class::Std::Utils;
         return if $server eq "localhost";
 
         $logger->debug( "Server available: ($group) $server" );
-        unshift @{ $data_of{ident $self}->{available}->{ $group } }, $server;
+        $data_of{ident $self}->{available}->{ $group }->{$server} = 1;
     }
 
     sub _mark_remaining {
         my ( $self, $group, $server ) = @_;
 
         $logger->debug( "Server remaining: ($group) $server" );
-        push @{ $data_of{ident $self}->{remaining}->{ $group } }, $server;
+        $data_of{ident $self}->{remaining}->{ $group }->{$server} = 1;
     }
 
     sub _mark_completed {
@@ -451,8 +499,12 @@ __END__
 
 =head1 NAME
 
-Net::CascadeCopy - scalable file propagation using ssh and rsync
+Net::CascadeCopy - Rapidly propagate (rsync/scp/...) files to many servers in multiple locations.
 
+
+=head1 VERSION
+
+version 0.2.0
 
 =head1 SYNOPSIS
 
@@ -476,7 +528,7 @@ Net::CascadeCopy - scalable file propagation using ssh and rsync
     # set path on the local server
     $ccp->set_source_path( "/path/on/local/server" );
     # set path on all remote servers
-    $ccp->set_source_path( "/path/on/remote/servers" );
+    $ccp->set_target_path( "/path/on/remote/servers" );
 
     # add lists of servers in multiple datacenters
     $ccp->add_group( "datacenter1", \@dc1_servers );
@@ -488,8 +540,9 @@ Net::CascadeCopy - scalable file propagation using ssh and rsync
 
 =head1 DESCRIPTION
 
-This module implements a scalable method of propagating files to a
-large number of servers in one or more locations via rsync or scp.
+This module implements a scalable method of quickly propagating files
+to a large number of servers in one or more locations via rsync or
+scp.
 
 A frequent solution to distributing a file or directory to a large
 number of servers is to copy it from a central file server to all
@@ -596,6 +649,14 @@ Transfer all files.  Will not return until all files are transferred.
 
 Note that this is still a beta release.
 
+There is one known bug.  If an initial copy from the localhost to the
+first server in one of the groups fails, it will not be retried.  the
+real solution to this bug is to refactor the logic for the inital copy
+from localhost.  The current logic is a hack.  Max forks should be
+configured for localhost transfers, and localhost could be listed in a
+group to allow it to be re-used by that group once all the intial
+transfers to the first server in each group were completed.
+
 If using rsync for the copy mechanism, it is recommended that you use
 the "--delete" and "--checksum" options.  Otherwise, if the content of
 the directory structure varies slightly from system to system, then
@@ -609,8 +670,17 @@ ssh arguments enable the ssh agent for authentication (the -A option).
 Note that each server will need an entry in .ssh/known_hosts for each
 other server.
 
-There are no known bugs in this module.  Please report problems to
-VVu@geekfarm.org.  Patches are welcome.
+Multiple syncs will be initialized within a few seconds on remote
+hosts.  Ideally this could be configurable to wait a certain amount of
+time before starting additional syncs.  This would give rsync some
+time to finish computing checksums, a potential disk/cpu bottleneck,
+and move into the network bottleneck phase before starting the next
+transfer.
+
+There is no timeout enforced in CascadeCopy yet.  A copy command that
+hangs forever will prevent CascadeCopy from ever completing.
+
+Please report problems to VVu@geekfarm.org.  Patches are welcome.
 
 =head1 SEE ALSO
 
@@ -658,10 +728,3 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-
-
-
-
-

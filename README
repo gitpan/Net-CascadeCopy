@@ -1,30 +1,13 @@
-Net-CascadeCopy
-
-INSTALLATION
-
-To install this module, run the following commands:
-
-    perl Makefile.PL
-    make
-    make test
-    make install
 
 
+This archive contains the distribution Net-CascadeCopy, version
+0.2.0:
 
-DEPENDENCIES
+  Rapidly propagate (rsync/scp/...) files to many servers in multiple locations.
 
-    Test::More
-    version
-    Log::Log4perl
-    Getopt::Long
-    Pod::Usage
-    Proc::Queue
-    Class::Std::Utils
+This software is Copyright (c) 2009 by Alex White.
 
+This is free software, licensed under:
 
-COPYRIGHT AND LICENCE
+  The (three-clause) BSD License
 
-Copyright (C) 2007, Alex White
-
-This library is free software; you can redistribute it and/or modify
-it under the same terms as Perl itself.
