@@ -1,7 +1,7 @@
 
 
 This archive contains the distribution Net-CascadeCopy, version
-0.2.0:
+0.2.3:
 
   Rapidly propagate (rsync/scp/...) files to many servers in multiple locations.
 

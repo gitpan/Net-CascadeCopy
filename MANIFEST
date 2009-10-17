@@ -4,14 +4,15 @@ MANIFEST
 META.yml
 Makefile.PL
 README
+bin/ccp
 dist.ini
 lib/Net/CascadeCopy.pm
-scripts/ccp
 t/00.load.t
 t/01.new.t
 t/02_successful_copy.t
 t/03_single_transfer.t
 t/04_two_transfers.t
+t/05_two_transfer_hostname_sort_bug.t
 t/critic.t
 t/meta.t
 t/release-pod-coverage.t

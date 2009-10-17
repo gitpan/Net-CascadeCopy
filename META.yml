@@ -15,11 +15,9 @@ requires:
   ExtUtils::MakeMaker: 0
   Getopt::Long: 0
   Log::Log4perl: 0
-  Mouse: 0
   POSIX: 0
   Pod::Usage: 0
   Proc::Queue: 0
   Test::More: 0
   vars: 0
-  version: 0
-version: 0.2.0
+version: 0.2.3
