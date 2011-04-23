@@ -4,29 +4,56 @@ use warnings;
 
 
 
-use ExtUtils::MakeMaker;
+use ExtUtils::MakeMaker 6.31;
 
-WriteMakefile(
-  DISTNAME  => 'Net-CascadeCopy',
-  NAME      => 'Net::CascadeCopy',
-  AUTHOR    => "Alex\ White\ \<VVu\@geekfarm\.org\>",
-  ABSTRACT  => "Rapidly\ propagate\ \(rsync\/scp\/\.\.\.\)\ files\ to\ many\ servers\ in\ multiple\ locations\.",
-  VERSION   => '0.2.4',
-  EXE_FILES => [ qw(bin/ccp) ],
-  (eval { ExtUtils::MakeMaker->VERSION(6.31) } ? (LICENSE => 'bsd') : ()),
-  PREREQ_PM    => {
-    "Getopt::Long" => '0',
-    "Benchmark" => '0',
-    "Pod::Usage" => '0',
-    "Data::Dumper" => '0',
-    "vars" => '0',
-    "Proc::Queue" => '0',
-    "Test::More" => '0',
-    "Test::Differences" => '0',
-    "Class::Std::Utils" => '0',
-    "POSIX" => '0',
-    "Log::Log4perl" => '0',
+
+
+my %WriteMakefileArgs = (
+  'ABSTRACT' => 'Rapidly propagate (rsync/scp/...) files to many servers in multiple locations.',
+  'AUTHOR' => 'Alex White <VVu@geekfarm.org>',
+  'BUILD_REQUIRES' => {
+    'English' => '0',
+    'Test::Differences' => '0',
+    'Test::More' => '0.88'
   },
-  test => {TESTS => 't/*.t'}
+  'CONFIGURE_REQUIRES' => {
+    'ExtUtils::MakeMaker' => '6.31'
+  },
+  'DISTNAME' => 'Net-CascadeCopy',
+  'EXE_FILES' => [],
+  'LICENSE' => 'bsd',
+  'NAME' => 'Net::CascadeCopy',
+  'PREREQ_PM' => {
+    'Benchmark' => '0',
+    'Log::Log4perl' => '0',
+    'Mouse' => '0',
+    'POSIX' => '0',
+    'Proc::Queue' => '0'
+  },
+  'VERSION' => '0.2.5',
+  'test' => {
+    'TESTS' => 't/*.t'
+  }
 );
+
+
+unless ( eval { ExtUtils::MakeMaker->VERSION(6.56) } ) {
+  my $br = delete $WriteMakefileArgs{BUILD_REQUIRES};
+  my $pp = $WriteMakefileArgs{PREREQ_PM};
+  for my $mod ( keys %$br ) {
+    if ( exists $pp->{$mod} ) {
+      $pp->{$mod} = $br->{$mod} if $br->{$mod} > $pp->{$mod};
+    }
+    else {
+      $pp->{$mod} = $br->{$mod};
+    }
+  }
+}
+
+delete $WriteMakefileArgs{CONFIGURE_REQUIRES}
+  unless eval { ExtUtils::MakeMaker->VERSION(6.52) };
+
+WriteMakefile(%WriteMakefileArgs);
+
+
 

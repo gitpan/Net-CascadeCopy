@@ -10,13 +10,15 @@ devel-cover.txt
 dist.ini
 lib/Net/CascadeCopy.pm
 perl-metrics-simple.txt
-t/00.load.t
+t/000-report-versions-tiny.t
 t/01.new.t
 t/02_successful_copy.t
 t/03_single_transfer.t
 t/04_two_transfers.t
 t/05_two_transfer_hostname_sort_bug.t
 t/06_delay_bug.t
+t/07_sort_bug.t
+t/author-critic.t
 t/critic.t
 t/kwalitee.t
 t/meta.t
