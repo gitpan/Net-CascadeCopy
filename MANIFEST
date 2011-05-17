@@ -18,6 +18,7 @@ t/04_two_transfers.t
 t/05_two_transfer_hostname_sort_bug.t
 t/06_delay_bug.t
 t/07_sort_bug.t
+t/08_rsync_failure.t
 t/author-critic.t
 t/critic.t
 t/kwalitee.t

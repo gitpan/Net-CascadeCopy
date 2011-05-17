@@ -23,4 +23,4 @@ requires:
   Proc::Queue: 0
 resources:
   repository: http://github.com/wu/Net-CascadeCopy
-version: 0.2.5
+version: 0.2.6
